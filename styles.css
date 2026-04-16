@@ -51,8 +51,6 @@ body {
   padding: 20px 24px;
   align-items: start;
 }
-@media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
-
 .controls {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -63,6 +61,8 @@ body {
   gap: 14px;
   position: sticky; top: 16px;
 }
+
+@media (max-width: 900px) { .layout { grid-template-columns: 1fr; } .controls { position: static; } }
 
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field label { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; }
