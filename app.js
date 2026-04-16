@@ -8,8 +8,6 @@ import { COLOR_NAMES } from "./color-names.js";
 const $ = (id) => document.getElementById(id);
 
 const state = {
-  name: "",
-  lastAutoName: "",  // last paint name we auto-filled, so we know when to replace
   seedHex: "#7e3e3e",
   seed: null,        // OKLCH
   kind: "foreground",
@@ -19,7 +17,15 @@ const state = {
   darkChromaRetention: 0.5,
   anchor: 500,
   compare: "",
+  coordLightBg: 0,   // index into palette: 0=step 50, 1=step 100
+  coordDarkBg: 10,   // index: 9=step 900, 10=step 950
 };
+
+// Palette name is always derived from the seed color — no manual override.
+function currentName() {
+  const rgb = hexToRgb(state.seedHex);
+  return rgb ? nearestName(rgbToOklab(rgb)) : "brand";
+}
 
 // Nearest name by OKLab Euclidean distance (a good ΔE proxy for OKLab).
 function nearestName(lab) {
@@ -40,7 +46,6 @@ function encodeStateToUrl() {
   const p = new URLSearchParams();
   p.set("s", state.seedHex.replace(/^#/, ""));
   if (state.kind !== "foreground") p.set("k", "n");
-  if (state.name) p.set("n", state.name);
   if (state.chromaScale !== 1.0) p.set("cs", String(state.chromaScale));
   if (state.hueShift !== 0) p.set("hs", String(state.hueShift));
   if (state.highContrast) p.set("hc", "1");
@@ -48,6 +53,8 @@ function encodeStateToUrl() {
     p.set("dcr", String(state.darkChromaRetention));
   if (state.anchor !== 500) p.set("a", String(state.anchor));
   if (state.compare) p.set("cmp", state.compare);
+  if (state.coordLightBg !== 0) p.set("lbg", String(STEPS[state.coordLightBg]));
+  if (state.coordDarkBg !== 10) p.set("dbg", String(STEPS[state.coordDarkBg]));
   return p.toString();
 }
 
@@ -60,9 +67,6 @@ function applyStateFromUrl() {
 
   const k = p.get("k");
   if (k === "n") state.kind = "neutral";
-
-  const n = p.get("n");
-  if (n) { state.name = n; state.lastAutoName = ""; }  // user-provided name locks auto-fill
 
   const cs = parseFloat(p.get("cs"));
   if (!Number.isNaN(cs)) state.chromaScale = clamp(cs, 0, 2);
@@ -80,6 +84,12 @@ function applyStateFromUrl() {
 
   const cmp = p.get("cmp");
   if (cmp && TAILWIND[cmp]) state.compare = cmp;
+
+  const lbg = parseInt(p.get("lbg"), 10);
+  if (lbg === 50 || lbg === 100) state.coordLightBg = STEPS.indexOf(lbg);
+
+  const dbg = parseInt(p.get("dbg"), 10);
+  if (dbg === 900 || dbg === 950) state.coordDarkBg = STEPS.indexOf(dbg);
 }
 
 function clamp(x, lo, hi) { return Math.max(lo, Math.min(hi, x)); }
@@ -91,7 +101,6 @@ function syncUrl() {
 }
 
 function hydrateControlsFromState() {
-  $("name").value = state.name;
   $("seed-color").value = state.seedHex;
   $("seed-hex").value = state.seedHex;
   document.querySelectorAll(".seg button[data-kind]").forEach((b) => {
@@ -107,6 +116,13 @@ function hydrateControlsFromState() {
   $("dark-chroma-val").textContent = state.darkChromaRetention.toFixed(2);
   $("anchor").value = String(state.anchor);
   $("compare").value = state.compare;
+  document.querySelectorAll(".coord-seg").forEach((seg) => {
+    const which = seg.dataset.coordBg;
+    const target = which === "light" ? STEPS[state.coordLightBg] : STEPS[state.coordDarkBg];
+    seg.querySelectorAll("button").forEach((b) => {
+      b.classList.toggle("on", parseInt(b.dataset.step, 10) === target);
+    });
+  });
 }
 
 function recomputeSeedFromHex() {
@@ -126,23 +142,15 @@ function slug(s) {
     .replace(/^-+|-+$/g, "");
 }
 
-function updateSuggestedName() {
-  const rgb = hexToRgb(state.seedHex);
-  if (!rgb) return;
-  const suggested = nearestName(rgbToOklab(rgb));
-
-  // Auto-fill name if user hasn't customized it.
-  const nameEl = $("name");
-  const current = nameEl.value;
-  if (current === "" || current === state.lastAutoName) {
-    nameEl.value = suggested;
-    state.name = suggested;
-    state.lastAutoName = suggested;
-  }
-}
+// Cached outputs for the main (seed-only) palette, read by the Swatches-tab
+// copy buttons. Coord-card copy buttons build their own per-scheme strings.
+let mainCsharp = "";
+let mainTailwind = "";
 
 function render() {
-  updateSuggestedName();
+  const name = currentName();
+  $("name-readout").textContent = name;
+
   const stops = generatePalette({
     seed: state.seed,
     kind: state.kind,
@@ -155,10 +163,224 @@ function render() {
 
   renderSeedReadout();
   renderSwatches(stops);
-  renderCsharp(stops);
-  renderTailwind(stops);
-  renderDemo(stops);
+  mainCsharp = buildCsharp(name, stops, []);
+  mainTailwind = buildTailwind(name, stops, []);
+  renderCoordinating(name, stops);
   syncUrl();
+}
+
+// Build { name, slug, stops, label } role palettes for a given scheme, with
+// slug collision avoidance against the main palette.
+function coordinatingExtras(seedStops, scheme, mainName) {
+  const roles = deriveCoordinatingRoles(state.seed, state.kind, scheme.offsets);
+  const out = [];
+  const usedSlugs = new Set([slug(mainName)]);
+
+  const addRole = (role, roleKind, label) => {
+    const hex = oklchToHex(role);
+    const lab = rgbToOklab(hexToRgb(hex));
+    const name = nearestName(lab);
+    let base = slug(name), s = base, n = 2;
+    while (usedSlugs.has(s)) { s = `${base}-${n++}`; }
+    usedSlugs.add(s);
+    const stops = rolePalette(role, roleKind);
+    out.push({ name, slug: s, stops, label });
+  };
+
+  if (state.kind === "foreground") {
+    addRole(roles.base, "neutral", "base");
+    roles.accents.forEach((a, i) => addRole(a, "foreground", `accent ${i + 1}`));
+  } else {
+    addRole(roles.primary, "foreground", "primary");
+    roles.accents.forEach((a, i) => addRole(a, "foreground", `accent ${i + 1}`));
+  }
+  return { roles, extras: out };
+}
+
+const COORD_SCHEMES = [
+  { id: "complementary", label: "Complementary",       offsets: [180] },
+  { id: "split",         label: "Split-complementary", offsets: [150, 210] },
+  { id: "triadic",       label: "Triadic",             offsets: [120, 240] },
+  { id: "analogous",     label: "Analogous",           offsets: [-30, 30] },
+];
+
+// Target chromas were tuned against Tailwind 500-steps — slate/stone sit
+// around C≈0.015–0.03; vivid accents around C≈0.2. Using the raw seed chroma
+// washed out both ends (nothing from a near-gray seed, too little tint when
+// deriving a neutral from a saturated primary).
+const COORD_PRIMARY_C = 0.22;        // target chroma for a primary generated from a neutral seed
+const COORD_NEUTRAL_FRACTION = 0.33; // how much of the primary's chroma to carry into a derived neutral
+const COORD_NEUTRAL_MIN = 0.02;
+const COORD_NEUTRAL_MAX = 0.05;
+
+function deriveCoordinatingRoles(seed, kind, offsets) {
+  const wrap = (h) => ((h % 360) + 360) % 360;
+  const clamp01 = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
+  if (kind === "foreground") {
+    const primary = { L: seed.L, C: seed.C, H: wrap(seed.H) };
+    const baseC = clamp01(seed.C * COORD_NEUTRAL_FRACTION, COORD_NEUTRAL_MIN, COORD_NEUTRAL_MAX);
+    const base = { L: seed.L, C: baseC, H: primary.H };
+    const accents = offsets.map((o) => ({ L: seed.L, C: seed.C, H: wrap(primary.H + o) }));
+    return { base, primary, accents };
+  }
+  const base = { L: seed.L, C: seed.C, H: wrap(seed.H) };
+  const primary = { L: seed.L, C: COORD_PRIMARY_C, H: wrap(seed.H + 180) };
+  const accents = offsets.map((o) => ({ L: seed.L, C: COORD_PRIMARY_C, H: wrap(primary.H + o) }));
+  return { base, primary, accents };
+}
+
+function rolePalette(role, roleKind) {
+  return generatePalette({
+    seed: role,
+    kind: roleKind,
+    anchorStep: state.anchor,
+    chromaScale: state.chromaScale,
+    hueShift: state.hueShift,
+    highContrast: state.highContrast,
+    darkChromaRetention: state.darkChromaRetention,
+  });
+}
+
+function coordStripEl(stops) {
+  const el = document.createElement("div");
+  el.className = "coord-strip";
+  for (const s of stops) {
+    const chip = document.createElement("div");
+    chip.className = "coord-chip";
+    chip.style.background = formatOklch(s);
+    chip.title = `${s.step} · ${oklchToHex(s)}`;
+    el.appendChild(chip);
+  }
+  return el;
+}
+
+function coordRoleRow(label, role, stops) {
+  const row = document.createElement("div");
+  row.className = "coord-role";
+  const head = document.createElement("div");
+  head.className = "coord-role-head";
+  head.innerHTML = `<span class="coord-role-label">${label}</span>
+    <span class="coord-role-meta">${oklchToHex(role)} · H${Math.round(role.H)}°</span>`;
+  row.appendChild(head);
+  row.appendChild(coordStripEl(stops));
+  return row;
+}
+
+function coordDemoCard(basePal, primPal, accentPals, variant) {
+  const c = (pal, i) => formatOklch(pal[i]);
+  const el = document.createElement("div");
+  el.className = `demo-card ${variant}`;
+  const lbg = state.coordLightBg;  // 0 (step 50) or 1 (step 100)
+  const dbg = state.coordDarkBg;   // 9 (step 900) or 10 (step 950)
+  const vars = variant === "light" ? {
+    "--demo-bg": c(basePal, lbg),
+    "--demo-surface": c(basePal, lbg + 1),
+    "--demo-border": c(basePal, lbg + 2),
+    "--demo-text": c(basePal, 9),
+    "--demo-muted": c(basePal, 6),
+    "--demo-accent": c(primPal, 5),
+    "--demo-accent-hover": c(primPal, 6),
+    "--demo-on-accent": c(primPal, 0),
+  } : {
+    "--demo-bg": c(basePal, dbg),
+    "--demo-surface": c(basePal, dbg - 1),
+    "--demo-border": c(basePal, dbg - 2),
+    "--demo-text": c(basePal, 0),
+    "--demo-muted": c(basePal, 4),
+    "--demo-accent": c(primPal, 4),
+    "--demo-accent-hover": c(primPal, 3),
+    "--demo-on-accent": c(primPal, 10),
+  };
+  for (const [k, v] of Object.entries(vars)) el.style.setProperty(k, v);
+  const swatchI = variant === "light" ? 5 : 4;
+  const onI = variant === "light" ? 0 : 10;
+  const accentChips = accentPals.map((pal, idx) => (
+    `<span class="accent-chip" style="background:${c(pal, swatchI)};color:${c(pal, onI)}">Accent ${idx + 1}</span>`
+  )).join("");
+  const accentDot = accentPals[0] ? c(accentPals[0], swatchI) : c(primPal, swatchI);
+  el.innerHTML = `
+    <h3>${variant === "light" ? "Light" : "Dark"} surface</h3>
+    <p>The quick brown fox jumps over the lazy dog. Pair a base with a primary; accents add emphasis — find what reads well together at a glance.</p>
+    <div class="surface">
+      <div class="row">
+        <span class="tag">New</span>
+        <strong>Feature title</strong>
+        <span class="dot" style="background:${accentDot}"></span>
+      </div>
+      <p class="muted">A short supporting line of copy in a muted tone. <a href="#">Learn more →</a></p>
+      <div class="row code-row">
+        <span class="chip">const x = 42;</span>
+        <span class="chip">theme.500</span>
+      </div>
+    </div>
+    <div class="divider"></div>
+    <div class="row">
+      <button class="primary">Primary action</button>
+      <button class="secondary">Secondary</button>
+      ${accentChips}
+    </div>`;
+  return el;
+}
+
+function renderCoordinating(mainName, seedStops) {
+  const host = $("coordinating");
+  if (!host) return;
+  host.innerHTML = "";
+  for (const scheme of COORD_SCHEMES) {
+    const { roles, extras } = coordinatingExtras(seedStops, scheme, mainName);
+    // Reuse the user's tuned palette for whichever role matches the seed kind —
+    // this way the coordinating preview always matches the main Swatches tab.
+    const basePal = state.kind === "neutral" ? seedStops
+      : extras.find((e) => e.label === "base").stops;
+    const primPal = state.kind === "foreground" ? seedStops
+      : extras.find((e) => e.label === "primary").stops;
+    const accentPals = extras.filter((e) => e.label.startsWith("accent")).map((e) => e.stops);
+
+    const csharpText = buildCsharp(mainName, seedStops, extras);
+    const tailwindText = buildTailwind(mainName, seedStops, extras);
+
+    const card = document.createElement("div");
+    card.className = "coord-card";
+
+    const header = document.createElement("div");
+    header.className = "coord-card-head";
+    header.innerHTML = `<div class="coord-card-title">
+        <h3>${scheme.label}</h3>
+        <span class="coord-offsets">${scheme.offsets.map((o) => (o > 0 ? "+" : "") + o + "°").join(", ")}</span>
+      </div>`;
+    const actions = document.createElement("div");
+    actions.className = "coord-card-actions";
+    const btnCs = document.createElement("button");
+    btnCs.type = "button"; btnCs.className = "btn-secondary"; btnCs.textContent = "Copy C#";
+    const btnTw = document.createElement("button");
+    btnTw.type = "button"; btnTw.className = "btn-secondary"; btnTw.textContent = "Copy Tailwind";
+    bindCopyText(btnCs, csharpText, "Copy C#");
+    bindCopyText(btnTw, tailwindText, "Copy Tailwind");
+    actions.appendChild(btnCs);
+    actions.appendChild(btnTw);
+    header.appendChild(actions);
+    card.appendChild(header);
+
+    const roleWrap = document.createElement("div");
+    roleWrap.className = "coord-roles";
+    const baseLabel = state.kind === "neutral" ? `Base · ${mainName}` : `Base · ${extras.find((e) => e.label === "base").name}`;
+    const primLabel = state.kind === "foreground" ? `Primary · ${mainName}` : `Primary · ${extras.find((e) => e.label === "primary").name}`;
+    roleWrap.appendChild(coordRoleRow(baseLabel, roles.base, basePal));
+    roleWrap.appendChild(coordRoleRow(primLabel, roles.primary, primPal));
+    const accentExtras = extras.filter((e) => e.label.startsWith("accent"));
+    roles.accents.forEach((a, i) => {
+      roleWrap.appendChild(coordRoleRow(`Accent ${i + 1} · ${accentExtras[i].name}`, a, accentPals[i]));
+    });
+    card.appendChild(roleWrap);
+
+    const demo = document.createElement("div");
+    demo.className = "coord-demo";
+    demo.appendChild(coordDemoCard(basePal, primPal, accentPals, "light"));
+    demo.appendChild(coordDemoCard(basePal, primPal, accentPals, "dark"));
+    card.appendChild(demo);
+
+    host.appendChild(card);
+  }
 }
 
 // Tailwind v4 uses decimal L (0..1), trailing zeros trimmed.
@@ -170,15 +392,20 @@ function formatOklchTheme({ L, C, H }) {
   return `oklch(${fmt(L, 3)} ${fmt(C, 3)} ${fmt(H, 3)})`;
 }
 
-function renderTailwind(stops) {
-  const name = (state.name || "brand").trim() || "brand";
-  const s = slug(name);
+function tailwindLinesFor(slugName, stops) {
+  return stops.map((stop) => `  --color-${slugName}-${stop.step}: ${formatOklchTheme(stop)};`);
+}
+function buildTailwind(name, stops, extras) {
   const lines = ["@theme {"];
-  for (const stop of stops) {
-    lines.push(`  --color-${s}-${stop.step}: ${formatOklchTheme(stop)};`);
+  lines.push(`  /* ${name} */`);
+  lines.push(...tailwindLinesFor(slug(name), stops));
+  for (const p of extras) {
+    lines.push("");
+    lines.push(`  /* ${p.label}: ${p.name} */`);
+    lines.push(...tailwindLinesFor(p.slug, p.stops));
   }
   lines.push("}");
-  $("tailwind").textContent = lines.join("\n");
+  return lines.join("\n");
 }
 
 function renderSeedReadout() {
@@ -236,62 +463,24 @@ function hueDist(a, b) {
   return d;
 }
 
-function renderCsharp(stops) {
-  const name = (state.name || "brand").trim() || "brand";
-  const s = slug(name);
+function csharpBlockFor(name, slugName, stops, label) {
   const tc = titleCase(name);
-  const lines = [`// Colors - ${tc}`];
+  const header = label ? `// Colors - ${tc} (${label})` : `// Colors - ${tc}`;
+  const lines = [header];
   for (const stop of stops) {
-    lines.push(`builder.Add("--color-${s}-${stop.step}", "${formatOklch(stop)}");`);
+    lines.push(`builder.Add("--color-${slugName}-${stop.step}", "${formatOklch(stop)}");`);
   }
   lines.push("");
   lines.push("/// <summary>");
-  lines.push(`/// Represents the color name "${s}".`);
+  lines.push(`/// Represents the color name "${slugName}".`);
   lines.push("/// </summary>");
-  lines.push(`public const string ${tc} = "${s}";`);
-  $("csharp").textContent = lines.join("\n");
+  lines.push(`public const string ${tc} = "${slugName}";`);
+  return lines.join("\n");
 }
-
-function renderDemo(stops) {
-  const c = (i) => formatOklch(stops[i]);
-  // Indices: 50=0,100=1,200=2,300=3,400=4,500=5,600=6,700=7,800=8,900=9,950=10
-  const light = {
-    "--demo-bg": c(0),
-    "--demo-surface": c(1),
-    "--demo-border": c(2),
-    "--demo-text": c(9),
-    "--demo-muted": c(6),
-    "--demo-accent": c(5),
-    "--demo-accent-hover": c(6),
-    "--demo-on-accent": c(0),
-  };
-  const dark = {
-    "--demo-bg": c(10),
-    "--demo-surface": c(9),
-    "--demo-border": c(8),
-    "--demo-text": c(0),
-    "--demo-muted": c(4),
-    "--demo-accent": c(4),
-    "--demo-accent-hover": c(3),
-    "--demo-on-accent": c(10),
-  };
-  applyDemo($("demo-light"), light, "Light");
-  applyDemo($("demo-dark"), dark, "Dark");
-}
-
-function applyDemo(el, vars, label) {
-  for (const [k, v] of Object.entries(vars)) el.style.setProperty(k, v);
-  el.innerHTML = `
-    <h3>${label} surface</h3>
-    <p>A paragraph with a <a href="#">link to somewhere</a>. The quick brown fox jumps over the lazy dog — enough copy to reveal ugly combinations.</p>
-    <div class="surface">
-      <div class="row"><span class="chip">const x = 42;</span><span class="chip">theme.${state.name}.500</span></div>
-    </div>
-    <div class="divider"></div>
-    <div class="row">
-      <button class="primary">Primary</button>
-      <button class="secondary">Secondary</button>
-    </div>`;
+function buildCsharp(name, stops, extras) {
+  const blocks = [csharpBlockFor(name, slug(name), stops)];
+  for (const p of extras) blocks.push(csharpBlockFor(p.name, p.slug, p.stops, p.label));
+  return blocks.join("\n\n");
 }
 
 // ---- Inputs ----
@@ -303,12 +492,6 @@ function scheduleRender() {
 }
 
 function bindInputs() {
-  $("name").addEventListener("input", (e) => {
-    state.name = e.target.value;
-    state.lastAutoName = "";  // user took over — stop auto-filling
-    scheduleRender();
-  });
-
   $("seed-color").addEventListener("input", (e) => {
     state.seedHex = e.target.value;
     $("seed-hex").value = state.seedHex;
@@ -391,6 +574,21 @@ function bindInputs() {
     scheduleRender();
   });
 
+  document.querySelectorAll(".coord-seg").forEach((seg) => {
+    const which = seg.dataset.coordBg; // "light" | "dark"
+    seg.querySelectorAll("button").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        seg.querySelectorAll("button").forEach((b) => b.classList.remove("on"));
+        btn.classList.add("on");
+        const step = parseInt(btn.dataset.step, 10);
+        const idx = STEPS.indexOf(step);
+        if (which === "light") state.coordLightBg = idx;
+        else state.coordDarkBg = idx;
+        scheduleRender();
+      });
+    });
+  });
+
   // Tabs
   document.querySelectorAll(".tabs button").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -403,8 +601,8 @@ function bindInputs() {
     });
   });
 
-  bindCopy("copy-csharp", "csharp");
-  bindCopy("copy-tailwind", "tailwind");
+  bindCopyText($("copy-csharp"), () => mainCsharp, "Copy C#");
+  bindCopyText($("copy-tailwind"), () => mainTailwind, "Copy Tailwind");
 
   $("copy-link").addEventListener("click", async () => {
     syncUrl();
@@ -418,14 +616,15 @@ function bindInputs() {
   });
 }
 
-function bindCopy(btnId, sourceId) {
-  $(btnId).addEventListener("click", async () => {
+// `source` can be a string or a 0-arg function returning a string (for late
+// binding to module-level caches that refresh each render).
+function bindCopyText(btn, source, restoreLabel) {
+  btn.addEventListener("click", async () => {
+    const text = typeof source === "function" ? source() : source;
     try {
-      await navigator.clipboard.writeText($(sourceId).textContent);
-      const btn = $(btnId);
-      const prev = btn.textContent;
+      await navigator.clipboard.writeText(text);
       btn.textContent = "Copied";
-      setTimeout(() => (btn.textContent = prev), 1200);
+      setTimeout(() => (btn.textContent = restoreLabel), 1200);
     } catch {}
   });
 }

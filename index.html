@@ -24,8 +24,8 @@
 <main class="layout">
   <aside class="controls">
     <div class="field">
-      <label for="name">Color name</label>
-      <input id="name" type="text" value="" placeholder="brand" />
+      <label>Color name</label>
+      <div id="name-readout" class="readout name-readout">—</div>
     </div>
 
     <div class="field">
@@ -90,35 +90,37 @@
   <section class="output">
     <div class="tabs">
       <button type="button" data-tab="swatches" class="on">Swatches</button>
-      <button type="button" data-tab="csharp">C# code</button>
-      <button type="button" data-tab="tailwind">Tailwind</button>
-      <button type="button" data-tab="demo">Demo</button>
+      <button type="button" data-tab="coordinating">Coordinating</button>
     </div>
 
     <div class="tab-panel" data-panel="swatches">
+      <div class="code-actions">
+        <button type="button" id="copy-csharp" class="btn-secondary">Copy C#</button>
+        <button type="button" id="copy-tailwind" class="btn-secondary">Copy Tailwind</button>
+      </div>
       <div id="swatches" class="swatches"></div>
       <div id="swatches-compare" class="swatches compare"></div>
     </div>
 
-    <div class="tab-panel" data-panel="csharp" hidden>
-      <div class="code-actions">
-        <button type="button" id="copy-csharp" class="btn-secondary">Copy</button>
+    <div class="tab-panel" data-panel="coordinating" hidden>
+      <p class="coord-intro">Suggested base / primary / accent combinations derived from your seed. When your seed is a foreground, the base is its low-chroma echo; when your seed is a neutral, the primary is a hue-rotated, chroma-pumped complement. Each card has its own copy buttons for the full scheme (seed palette + roles).</p>
+      <div class="coord-bg-controls">
+        <div class="coord-bg-field">
+          <label>Light bg</label>
+          <div class="seg coord-seg" data-coord-bg="light">
+            <button type="button" data-step="50" class="on">50</button>
+            <button type="button" data-step="100">100</button>
+          </div>
+        </div>
+        <div class="coord-bg-field">
+          <label>Dark bg</label>
+          <div class="seg coord-seg" data-coord-bg="dark">
+            <button type="button" data-step="900">900</button>
+            <button type="button" data-step="950" class="on">950</button>
+          </div>
+        </div>
       </div>
-      <pre id="csharp" class="code"></pre>
-    </div>
-
-    <div class="tab-panel" data-panel="tailwind" hidden>
-      <div class="code-actions">
-        <button type="button" id="copy-tailwind" class="btn-secondary">Copy</button>
-      </div>
-      <pre id="tailwind" class="code"></pre>
-    </div>
-
-    <div class="tab-panel" data-panel="demo" hidden>
-      <div class="demo-grid">
-        <div id="demo-light" class="demo-card light"></div>
-        <div id="demo-dark" class="demo-card dark"></div>
-      </div>
+      <div id="coordinating" class="coord-grid"></div>
     </div>
   </section>
 </main>
