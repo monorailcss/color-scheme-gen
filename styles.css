@@ -24,9 +24,25 @@ body {
 .app-header {
   padding: 18px 24px 12px;
   border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
 }
 .app-header h1 { margin: 0 0 4px; font-size: 18px; font-weight: 600; }
 .app-header .sub { margin: 0; color: var(--muted); font-size: 13px; }
+.repo-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 13px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.repo-link:hover { color: var(--text); background: var(--surface-2); }
 
 .layout {
   display: grid;
