@@ -190,11 +190,12 @@ function renderSeedReadout() {
 function swatchEl(stop, deltaStr) {
   const oog = !isOklchInGamut(stop);
   const hex = oklchToHex(stop);
-  const oogTip = "Outside the sRGB gamut — the preview is gamut-mapped (hue preserved, chroma reduced), but the stored OKLCH value is exact. It will render correctly on wide-gamut (P3) displays. To bring it inside sRGB, lower the Chroma scale slider or pick a less saturated seed.";
+  const css = formatOklch(stop);
+  const oogTip = "Outside the sRGB gamut — on wide-gamut (P3) displays it renders correctly; on sRGB displays the browser clamps into gamut. The stored OKLCH value is exact. To bring it inside sRGB, lower the Chroma scale or pick a less saturated seed.";
   const el = document.createElement("div");
   el.className = "swatch" + (oog ? " oog" : "");
   el.innerHTML = `
-    <div class="chip" style="background:${hex}"${oog ? ` title="${oogTip}"` : ""}></div>
+    <div class="chip" style="background:${css}"${oog ? ` title="${oogTip}"` : ""}></div>
     <div class="meta">
       <span class="step">${stop.step}${oog ? ` <span class="oog-badge" title="${oogTip}">out of gamut</span>` : ""}</span>
       <span class="oklch" title="${formatOklch(stop)}">${formatOklch(stop)}</span>
@@ -255,27 +256,27 @@ function renderCsharp(stops) {
 }
 
 function renderDemo(stops) {
-  const hex = (i) => oklchToHex(stops[i]);
+  const c = (i) => formatOklch(stops[i]);
   // Indices: 50=0,100=1,200=2,300=3,400=4,500=5,600=6,700=7,800=8,900=9,950=10
   const light = {
-    "--demo-bg": hex(0),
-    "--demo-surface": hex(1),
-    "--demo-border": hex(2),
-    "--demo-text": hex(9),
-    "--demo-muted": hex(6),
-    "--demo-accent": hex(5),
-    "--demo-accent-hover": hex(6),
-    "--demo-on-accent": hex(0),
+    "--demo-bg": c(0),
+    "--demo-surface": c(1),
+    "--demo-border": c(2),
+    "--demo-text": c(9),
+    "--demo-muted": c(6),
+    "--demo-accent": c(5),
+    "--demo-accent-hover": c(6),
+    "--demo-on-accent": c(0),
   };
   const dark = {
-    "--demo-bg": hex(10),
-    "--demo-surface": hex(9),
-    "--demo-border": hex(8),
-    "--demo-text": hex(0),
-    "--demo-muted": hex(4),
-    "--demo-accent": hex(4),
-    "--demo-accent-hover": hex(3),
-    "--demo-on-accent": hex(10),
+    "--demo-bg": c(10),
+    "--demo-surface": c(9),
+    "--demo-border": c(8),
+    "--demo-text": c(0),
+    "--demo-muted": c(4),
+    "--demo-accent": c(4),
+    "--demo-accent-hover": c(3),
+    "--demo-on-accent": c(10),
   };
   applyDemo($("demo-light"), light, "Light");
   applyDemo($("demo-dark"), dark, "Dark");
