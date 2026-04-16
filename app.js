@@ -33,6 +33,83 @@ function nearestName(lab) {
   return best[3];
 }
 
+// ---- URL state sync ----
+
+// Compact query-string encoding. Only non-default values are emitted so
+// unshifted palettes produce a short URL.
+function encodeStateToUrl() {
+  const p = new URLSearchParams();
+  p.set("s", state.seedHex.replace(/^#/, ""));
+  if (state.kind !== "foreground") p.set("k", "n");
+  if (state.name) p.set("n", state.name);
+  if (state.chromaScale !== 1.0) p.set("cs", String(state.chromaScale));
+  if (state.hueShift !== 0) p.set("hs", String(state.hueShift));
+  if (state.highContrast) p.set("hc", "1");
+  if (state.kind === "neutral" && state.darkChromaRetention !== 0.5)
+    p.set("dcr", String(state.darkChromaRetention));
+  if (state.anchor !== 500) p.set("a", String(state.anchor));
+  if (state.compare) p.set("cmp", state.compare);
+  return p.toString();
+}
+
+function applyStateFromUrl() {
+  const p = new URLSearchParams(window.location.search);
+  if (!p.toString()) return;
+
+  const s = p.get("s");
+  if (s && /^[0-9a-fA-F]{6}$/.test(s)) state.seedHex = "#" + s.toLowerCase();
+
+  const k = p.get("k");
+  if (k === "n") state.kind = "neutral";
+
+  const n = p.get("n");
+  if (n) { state.name = n; state.lastAutoName = ""; }  // user-provided name locks auto-fill
+
+  const cs = parseFloat(p.get("cs"));
+  if (!Number.isNaN(cs)) state.chromaScale = clamp(cs, 0, 2);
+
+  const hs = parseFloat(p.get("hs"));
+  if (!Number.isNaN(hs)) state.hueShift = clamp(hs, -30, 30);
+
+  state.highContrast = p.get("hc") === "1";
+
+  const dcr = parseFloat(p.get("dcr"));
+  if (!Number.isNaN(dcr)) state.darkChromaRetention = clamp(dcr, 0, 1);
+
+  const a = parseInt(p.get("a"), 10);
+  if (STEPS.includes(a)) state.anchor = a;
+
+  const cmp = p.get("cmp");
+  if (cmp && TAILWIND[cmp]) state.compare = cmp;
+}
+
+function clamp(x, lo, hi) { return Math.max(lo, Math.min(hi, x)); }
+
+function syncUrl() {
+  const qs = encodeStateToUrl();
+  const url = `${window.location.pathname}${qs ? "?" + qs : ""}${window.location.hash}`;
+  window.history.replaceState(null, "", url);
+}
+
+function hydrateControlsFromState() {
+  $("name").value = state.name;
+  $("seed-color").value = state.seedHex;
+  $("seed-hex").value = state.seedHex;
+  document.querySelectorAll(".seg button[data-kind]").forEach((b) => {
+    b.classList.toggle("on", b.dataset.kind === state.kind);
+  });
+  $("dark-chroma-field").hidden = state.kind !== "neutral";
+  $("chroma-scale").value = String(state.chromaScale);
+  $("chroma-scale-val").textContent = state.chromaScale.toFixed(2);
+  $("hue-shift").value = String(state.hueShift);
+  $("hue-shift-val").textContent = `${state.hueShift}°`;
+  $("high-contrast").checked = state.highContrast;
+  $("dark-chroma").value = String(state.darkChromaRetention);
+  $("dark-chroma-val").textContent = state.darkChromaRetention.toFixed(2);
+  $("anchor").value = String(state.anchor);
+  $("compare").value = state.compare;
+}
+
 function recomputeSeedFromHex() {
   const rgb = hexToRgb(state.seedHex);
   if (!rgb) return;
@@ -82,6 +159,7 @@ function render() {
   renderCsharp(stops);
   renderTailwind(stops);
   renderDemo(stops);
+  syncUrl();
 }
 
 // Tailwind v4 uses decimal L (0..1), trailing zeros trimmed.
@@ -329,6 +407,17 @@ function bindInputs() {
 
   bindCopy("copy-csharp", "csharp");
   bindCopy("copy-tailwind", "tailwind");
+
+  $("copy-link").addEventListener("click", async () => {
+    syncUrl();
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      const btn = $("copy-link");
+      const prev = btn.textContent;
+      btn.textContent = "Link copied";
+      setTimeout(() => (btn.textContent = prev), 1400);
+    } catch {}
+  });
 }
 
 function bindCopy(btnId, sourceId) {
@@ -345,6 +434,8 @@ function bindCopy(btnId, sourceId) {
 
 // ---- Init ----
 
+applyStateFromUrl();
 recomputeSeedFromHex();
 bindInputs();
+hydrateControlsFromState();
 render();
