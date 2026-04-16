@@ -1,0 +1,19 @@
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Local dev servers / tooling
+_site/
+node_modules/
+.cache/
+
+# Logs
+*.log

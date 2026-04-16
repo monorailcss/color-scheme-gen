@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<base href="./" />
+<title>MonorailCSS Palette Playground</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<header class="app-header">
+  <h1>MonorailCSS Palette Playground</h1>
+  <p class="sub">Generate a Tailwind-style 11-step OKLCH palette from a seed color.</p>
+</header>
+
+<main class="layout">
+  <aside class="controls">
+    <div class="field">
+      <label for="name">Color name</label>
+      <input id="name" type="text" value="" placeholder="brand" />
+    </div>
+
+    <div class="field">
+      <label>Seed color</label>
+      <div class="seed-row">
+        <input id="seed-color" type="color" value="#7e3e3e" />
+        <input id="seed-hex" type="text" value="#7e3e3e" spellcheck="false" />
+      </div>
+      <div id="seed-oklch" class="readout">oklch(…)</div>
+    </div>
+
+    <div class="field">
+      <label>Palette kind</label>
+      <div class="seg" role="tablist">
+        <button type="button" data-kind="foreground" class="on">Foreground</button>
+        <button type="button" data-kind="neutral">Neutral</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="chroma-scale">Chroma scale <span id="chroma-scale-val" class="val">1.00</span></label>
+      <input id="chroma-scale" type="range" min="0" max="2" step="0.05" value="1" />
+    </div>
+
+    <div class="field">
+      <label for="hue-shift">Hue shift (50→950) <span id="hue-shift-val" class="val">0°</span></label>
+      <input id="hue-shift" type="range" min="-30" max="30" step="1" value="0" />
+    </div>
+
+    <div class="field checkbox">
+      <input id="high-contrast" type="checkbox" />
+      <label for="high-contrast">High-contrast lightness curve</label>
+    </div>
+
+    <div class="field" id="dark-chroma-field" hidden>
+      <label for="dark-chroma">Dark-side chroma retention <span id="dark-chroma-val" class="val">0.50</span></label>
+      <input id="dark-chroma" type="range" min="0" max="1" step="0.05" value="0.5" />
+    </div>
+
+    <div class="field">
+      <label for="anchor">Anchor step</label>
+      <select id="anchor">
+        <option>50</option><option>100</option><option>200</option><option>300</option>
+        <option>400</option><option selected>500</option><option>600</option>
+        <option>700</option><option>800</option><option>900</option><option>950</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="compare">Compare to Tailwind</label>
+      <select id="compare">
+        <option value="">— none —</option>
+      </select>
+      <button id="load-compare" type="button" class="btn-secondary">Load into controls</button>
+    </div>
+  </aside>
+
+  <section class="output">
+    <div class="tabs">
+      <button type="button" data-tab="swatches" class="on">Swatches</button>
+      <button type="button" data-tab="csharp">C# code</button>
+      <button type="button" data-tab="tailwind">Tailwind</button>
+      <button type="button" data-tab="demo">Demo</button>
+    </div>
+
+    <div class="tab-panel" data-panel="swatches">
+      <div id="swatches" class="swatches"></div>
+      <div id="swatches-compare" class="swatches compare"></div>
+    </div>
+
+    <div class="tab-panel" data-panel="csharp" hidden>
+      <div class="code-actions">
+        <button type="button" id="copy-csharp" class="btn-secondary">Copy</button>
+      </div>
+      <pre id="csharp" class="code"></pre>
+    </div>
+
+    <div class="tab-panel" data-panel="tailwind" hidden>
+      <div class="code-actions">
+        <button type="button" id="copy-tailwind" class="btn-secondary">Copy</button>
+      </div>
+      <pre id="tailwind" class="code"></pre>
+    </div>
+
+    <div class="tab-panel" data-panel="demo" hidden>
+      <div class="demo-grid">
+        <div id="demo-light" class="demo-card light"></div>
+        <div id="demo-dark" class="demo-card dark"></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
