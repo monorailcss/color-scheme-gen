@@ -1,6 +1,5 @@
 import {
-  hexToRgb, rgbToHex, rgbToOklab, rgbToOklch, oklchToHex, oklchToRgb,
-  gamutMapOklch, isOklchInGamut, formatOklch,
+  hexToRgb, rgbToOklab, rgbToOklch, oklchToHex, formatOklch,
 } from "./color.js";
 import { generatePalette, STEPS, anchorIndex } from "./palette.js";
 import { TAILWIND } from "./tailwind-palettes.js";
@@ -188,17 +187,15 @@ function renderSeedReadout() {
 }
 
 function swatchEl(stop, deltaStr) {
-  const oog = !isOklchInGamut(stop);
   const hex = oklchToHex(stop);
   const css = formatOklch(stop);
-  const oogTip = "Outside the sRGB gamut — on wide-gamut (P3) displays it renders correctly; on sRGB displays the browser clamps into gamut. The stored OKLCH value is exact. To bring it inside sRGB, lower the Chroma scale or pick a less saturated seed.";
   const el = document.createElement("div");
-  el.className = "swatch" + (oog ? " oog" : "");
+  el.className = "swatch";
   el.innerHTML = `
-    <div class="chip" style="background:${css}"${oog ? ` title="${oogTip}"` : ""}></div>
+    <div class="chip" style="background:${css}"></div>
     <div class="meta">
-      <span class="step">${stop.step}${oog ? ` <span class="oog-badge" title="${oogTip}">out of gamut</span>` : ""}</span>
-      <span class="oklch" title="${formatOklch(stop)}">${formatOklch(stop)}</span>
+      <span class="step">${stop.step}</span>
+      <span class="oklch" title="${css}">${css}</span>
       <span class="hex">${hex}</span>
       ${deltaStr ? `<span class="delta">${deltaStr}</span>` : ""}
     </div>`;
