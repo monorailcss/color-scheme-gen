@@ -1,7 +1,7 @@
 import {
   hexToRgb, rgbToOklab, rgbToOklch, oklchToHex, formatOklch,
 } from "./color.js";
-import { generatePalette, STEPS, anchorIndex } from "./palette.js";
+import { generatePalette, STEPS } from "./palette.js";
 import { TAILWIND } from "./tailwind-palettes.js";
 import { COLOR_NAMES } from "./color-names.js";
 
@@ -9,7 +9,7 @@ const $ = (id) => document.getElementById(id);
 
 const state = {
   seedHex: "#7e3e3e",
-  seed: null,        // OKLCH
+  seed: null,
   kind: "foreground",
   chromaScale: 1.0,
   hueShift: 0,
@@ -17,17 +17,16 @@ const state = {
   darkChromaRetention: 0.5,
   anchor: 500,
   compare: "",
-  coordLightBg: 0,   // index into palette: 0=step 50, 1=step 100
-  coordDarkBg: 10,   // index: 9=step 900, 10=step 950
+  coordLightBg: 50,
+  coordDarkBg: 950,
+  activeTab: "swatches",
 };
 
-// Palette name is always derived from the seed color — no manual override.
 function currentName() {
   const rgb = hexToRgb(state.seedHex);
   return rgb ? nearestName(rgbToOklab(rgb)) : "brand";
 }
 
-// Nearest name by OKLab Euclidean distance (a good ΔE proxy for OKLab).
 function nearestName(lab) {
   let best = null, bestD = Infinity;
   for (const row of COLOR_NAMES) {
@@ -40,8 +39,6 @@ function nearestName(lab) {
 
 // ---- URL state sync ----
 
-// Compact query-string encoding. Only non-default values are emitted so
-// unshifted palettes produce a short URL.
 function encodeStateToUrl() {
   const p = new URLSearchParams();
   p.set("s", state.seedHex.replace(/^#/, ""));
@@ -53,8 +50,8 @@ function encodeStateToUrl() {
     p.set("dcr", String(state.darkChromaRetention));
   if (state.anchor !== 500) p.set("a", String(state.anchor));
   if (state.compare) p.set("cmp", state.compare);
-  if (state.coordLightBg !== 0) p.set("lbg", String(STEPS[state.coordLightBg]));
-  if (state.coordDarkBg !== 10) p.set("dbg", String(STEPS[state.coordDarkBg]));
+  if (state.coordLightBg !== 50) p.set("lbg", String(state.coordLightBg));
+  if (state.coordDarkBg !== 950) p.set("dbg", String(state.coordDarkBg));
   return p.toString();
 }
 
@@ -86,13 +83,14 @@ function applyStateFromUrl() {
   if (cmp && TAILWIND[cmp]) state.compare = cmp;
 
   const lbg = parseInt(p.get("lbg"), 10);
-  if (lbg === 50 || lbg === 100) state.coordLightBg = STEPS.indexOf(lbg);
+  if (lbg === 50 || lbg === 100) state.coordLightBg = lbg;
 
   const dbg = parseInt(p.get("dbg"), 10);
-  if (dbg === 900 || dbg === 950) state.coordDarkBg = STEPS.indexOf(dbg);
+  if (dbg === 900 || dbg === 950) state.coordDarkBg = dbg;
 }
 
 function clamp(x, lo, hi) { return Math.max(lo, Math.min(hi, x)); }
+const wrapHue = (h) => ((h % 360) + 360) % 360;
 
 function syncUrl() {
   const qs = encodeStateToUrl();
@@ -118,7 +116,7 @@ function hydrateControlsFromState() {
   $("compare").value = state.compare;
   document.querySelectorAll(".coord-seg").forEach((seg) => {
     const which = seg.dataset.coordBg;
-    const target = which === "light" ? STEPS[state.coordLightBg] : STEPS[state.coordDarkBg];
+    const target = which === "light" ? state.coordLightBg : state.coordDarkBg;
     seg.querySelectorAll("button").forEach((b) => {
       b.classList.toggle("on", parseInt(b.dataset.step, 10) === target);
     });
@@ -142,59 +140,57 @@ function slug(s) {
     .replace(/^-+|-+$/g, "");
 }
 
-// Cached outputs for the main (seed-only) palette, read by the Swatches-tab
-// copy buttons. Coord-card copy buttons build their own per-scheme strings.
-let mainCsharp = "";
-let mainTailwind = "";
-
-function render() {
-  const name = currentName();
-  $("name-readout").textContent = name;
-
-  const stops = generatePalette({
-    seed: state.seed,
-    kind: state.kind,
+function currentPaletteOpts() {
+  return {
     anchorStep: state.anchor,
     chromaScale: state.chromaScale,
     hueShift: state.hueShift,
     highContrast: state.highContrast,
     darkChromaRetention: state.darkChromaRetention,
-  });
+  };
+}
+
+let lastMainName = "brand";
+let lastMainStops = null;
+
+function render() {
+  const name = currentName();
+  lastMainName = name;
+  $("name-readout").textContent = name;
+
+  const stops = generatePalette({ seed: state.seed, kind: state.kind, ...currentPaletteOpts() });
+  lastMainStops = stops;
 
   renderSeedReadout();
   renderSwatches(stops);
-  mainCsharp = buildCsharp(name, stops, []);
-  mainTailwind = buildTailwind(name, stops, []);
-  renderCoordinating(name, stops);
+  if (state.activeTab === "coordinating") renderCoordinating(name, stops);
   syncUrl();
 }
 
-// Build { name, slug, stops, label } role palettes for a given scheme, with
-// slug collision avoidance against the main palette.
-function coordinatingExtras(seedStops, scheme, mainName) {
+function coordinatingExtras(scheme, mainName) {
   const roles = deriveCoordinatingRoles(state.seed, state.kind, scheme.offsets);
-  const out = [];
+  const extras = [];
   const usedSlugs = new Set([slug(mainName)]);
 
   const addRole = (role, roleKind, label) => {
-    const hex = oklchToHex(role);
-    const lab = rgbToOklab(hexToRgb(hex));
-    const name = nearestName(lab);
+    const name = nearestName(rgbToOklab(hexToRgb(oklchToHex(role))));
     let base = slug(name), s = base, n = 2;
     while (usedSlugs.has(s)) { s = `${base}-${n++}`; }
     usedSlugs.add(s);
-    const stops = rolePalette(role, roleKind);
-    out.push({ name, slug: s, stops, label });
+    const stops = generatePalette({ seed: role, kind: roleKind, ...currentPaletteOpts() });
+    const entry = { name, slug: s, stops, label };
+    extras.push(entry);
+    return entry;
   };
 
   if (state.kind === "foreground") {
-    addRole(roles.base, "neutral", "base");
-    roles.accents.forEach((a, i) => addRole(a, "foreground", `accent ${i + 1}`));
-  } else {
-    addRole(roles.primary, "foreground", "primary");
-    roles.accents.forEach((a, i) => addRole(a, "foreground", `accent ${i + 1}`));
+    const baseEntry = addRole(roles.base, "neutral", "base");
+    const accentEntries = roles.accents.map((a, i) => addRole(a, "foreground", `accent ${i + 1}`));
+    return { roles, extras, baseEntry, primName: mainName, accentEntries };
   }
-  return { roles, extras: out };
+  const primEntry = addRole(roles.primary, "foreground", "primary");
+  const accentEntries = roles.accents.map((a, i) => addRole(a, "foreground", `accent ${i + 1}`));
+  return { roles, extras, primEntry, baseName: mainName, accentEntries };
 }
 
 const COORD_SCHEMES = [
@@ -208,37 +204,23 @@ const COORD_SCHEMES = [
 // around C≈0.015–0.03; vivid accents around C≈0.2. Using the raw seed chroma
 // washed out both ends (nothing from a near-gray seed, too little tint when
 // deriving a neutral from a saturated primary).
-const COORD_PRIMARY_C = 0.22;        // target chroma for a primary generated from a neutral seed
-const COORD_NEUTRAL_FRACTION = 0.33; // how much of the primary's chroma to carry into a derived neutral
+const COORD_PRIMARY_C = 0.22;
+const COORD_NEUTRAL_FRACTION = 0.33;
 const COORD_NEUTRAL_MIN = 0.02;
 const COORD_NEUTRAL_MAX = 0.05;
 
 function deriveCoordinatingRoles(seed, kind, offsets) {
-  const wrap = (h) => ((h % 360) + 360) % 360;
-  const clamp01 = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
   if (kind === "foreground") {
-    const primary = { L: seed.L, C: seed.C, H: wrap(seed.H) };
-    const baseC = clamp01(seed.C * COORD_NEUTRAL_FRACTION, COORD_NEUTRAL_MIN, COORD_NEUTRAL_MAX);
+    const primary = { L: seed.L, C: seed.C, H: wrapHue(seed.H) };
+    const baseC = clamp(seed.C * COORD_NEUTRAL_FRACTION, COORD_NEUTRAL_MIN, COORD_NEUTRAL_MAX);
     const base = { L: seed.L, C: baseC, H: primary.H };
-    const accents = offsets.map((o) => ({ L: seed.L, C: seed.C, H: wrap(primary.H + o) }));
+    const accents = offsets.map((o) => ({ L: seed.L, C: seed.C, H: wrapHue(primary.H + o) }));
     return { base, primary, accents };
   }
-  const base = { L: seed.L, C: seed.C, H: wrap(seed.H) };
-  const primary = { L: seed.L, C: COORD_PRIMARY_C, H: wrap(seed.H + 180) };
-  const accents = offsets.map((o) => ({ L: seed.L, C: COORD_PRIMARY_C, H: wrap(primary.H + o) }));
+  const base = { L: seed.L, C: seed.C, H: wrapHue(seed.H) };
+  const primary = { L: seed.L, C: COORD_PRIMARY_C, H: wrapHue(seed.H + 180) };
+  const accents = offsets.map((o) => ({ L: seed.L, C: COORD_PRIMARY_C, H: wrapHue(primary.H + o) }));
   return { base, primary, accents };
-}
-
-function rolePalette(role, roleKind) {
-  return generatePalette({
-    seed: role,
-    kind: roleKind,
-    anchorStep: state.anchor,
-    chromaScale: state.chromaScale,
-    hueShift: state.hueShift,
-    highContrast: state.highContrast,
-    darkChromaRetention: state.darkChromaRetention,
-  });
 }
 
 function coordStripEl(stops) {
@@ -270,36 +252,31 @@ function coordDemoCard(basePal, primPal, accentPals, variant) {
   const c = (pal, i) => formatOklch(pal[i]);
   const el = document.createElement("div");
   el.className = `demo-card ${variant}`;
-  const lbg = state.coordLightBg;  // 0 (step 50) or 1 (step 100)
-  const dbg = state.coordDarkBg;   // 9 (step 900) or 10 (step 950)
-  const vars = variant === "light" ? {
-    "--demo-bg": c(basePal, lbg),
-    "--demo-surface": c(basePal, lbg + 1),
-    "--demo-border": c(basePal, lbg + 2),
-    "--demo-text": c(basePal, 9),
-    "--demo-muted": c(basePal, 6),
-    "--demo-accent": c(primPal, 5),
-    "--demo-accent-hover": c(primPal, 6),
-    "--demo-on-accent": c(primPal, 0),
-  } : {
-    "--demo-bg": c(basePal, dbg),
-    "--demo-surface": c(basePal, dbg - 1),
-    "--demo-border": c(basePal, dbg - 2),
-    "--demo-text": c(basePal, 0),
-    "--demo-muted": c(basePal, 4),
-    "--demo-accent": c(primPal, 4),
-    "--demo-accent-hover": c(primPal, 3),
-    "--demo-on-accent": c(primPal, 10),
+  const isLight = variant === "light";
+  const bg = isLight ? STEPS.indexOf(state.coordLightBg) : STEPS.indexOf(state.coordDarkBg);
+  const dir = isLight ? 1 : -1;
+  const textI = isLight ? 9 : 0;
+  const mutedI = isLight ? 6 : 4;
+  const accentI = isLight ? 5 : 4;
+  const accentHoverI = isLight ? 6 : 3;
+  const onAccentI = isLight ? 0 : 10;
+  const vars = {
+    "--demo-bg": c(basePal, bg),
+    "--demo-surface": c(basePal, bg + dir),
+    "--demo-border": c(basePal, bg + dir * 2),
+    "--demo-text": c(basePal, textI),
+    "--demo-muted": c(basePal, mutedI),
+    "--demo-accent": c(primPal, accentI),
+    "--demo-accent-hover": c(primPal, accentHoverI),
+    "--demo-on-accent": c(primPal, onAccentI),
   };
   for (const [k, v] of Object.entries(vars)) el.style.setProperty(k, v);
-  const swatchI = variant === "light" ? 5 : 4;
-  const onI = variant === "light" ? 0 : 10;
   const accentChips = accentPals.map((pal, idx) => (
-    `<span class="accent-chip" style="background:${c(pal, swatchI)};color:${c(pal, onI)}">Accent ${idx + 1}</span>`
+    `<span class="accent-chip" style="background:${c(pal, accentI)};color:${c(pal, onAccentI)}">Accent ${idx + 1}</span>`
   )).join("");
-  const accentDot = accentPals[0] ? c(accentPals[0], swatchI) : c(primPal, swatchI);
+  const accentDot = accentPals[0] ? c(accentPals[0], accentI) : c(primPal, accentI);
   el.innerHTML = `
-    <h3>${variant === "light" ? "Light" : "Dark"} surface</h3>
+    <h3>${isLight ? "Light" : "Dark"} surface</h3>
     <p>The quick brown fox jumps over the lazy dog. Pair a base with a primary; accents add emphasis — find what reads well together at a glance.</p>
     <div class="surface">
       <div class="row">
@@ -324,20 +301,19 @@ function coordDemoCard(basePal, primPal, accentPals, variant) {
 
 function renderCoordinating(mainName, seedStops) {
   const host = $("coordinating");
-  if (!host) return;
   host.innerHTML = "";
   for (const scheme of COORD_SCHEMES) {
-    const { roles, extras } = coordinatingExtras(seedStops, scheme, mainName);
+    const r = coordinatingExtras(scheme, mainName);
     // Reuse the user's tuned palette for whichever role matches the seed kind —
     // this way the coordinating preview always matches the main Swatches tab.
-    const basePal = state.kind === "neutral" ? seedStops
-      : extras.find((e) => e.label === "base").stops;
-    const primPal = state.kind === "foreground" ? seedStops
-      : extras.find((e) => e.label === "primary").stops;
-    const accentPals = extras.filter((e) => e.label.startsWith("accent")).map((e) => e.stops);
+    const basePal = state.kind === "neutral" ? seedStops : r.baseEntry.stops;
+    const primPal = state.kind === "foreground" ? seedStops : r.primEntry.stops;
+    const accentPals = r.accentEntries.map((e) => e.stops);
+    const baseName = state.kind === "neutral" ? mainName : r.baseEntry.name;
+    const primName = state.kind === "foreground" ? mainName : r.primEntry.name;
 
-    const csharpText = buildCsharp(mainName, seedStops, extras);
-    const tailwindText = buildTailwind(mainName, seedStops, extras);
+    const csharpText = buildCsharp(mainName, seedStops, r.extras);
+    const tailwindText = buildTailwind(mainName, seedStops, r.extras);
 
     const card = document.createElement("div");
     card.className = "coord-card";
@@ -354,8 +330,8 @@ function renderCoordinating(mainName, seedStops) {
     btnCs.type = "button"; btnCs.className = "btn-secondary"; btnCs.textContent = "Copy C#";
     const btnTw = document.createElement("button");
     btnTw.type = "button"; btnTw.className = "btn-secondary"; btnTw.textContent = "Copy Tailwind";
-    bindCopyText(btnCs, csharpText, "Copy C#");
-    bindCopyText(btnTw, tailwindText, "Copy Tailwind");
+    bindCopyText(btnCs, () => csharpText, "Copy C#");
+    bindCopyText(btnTw, () => tailwindText, "Copy Tailwind");
     actions.appendChild(btnCs);
     actions.appendChild(btnTw);
     header.appendChild(actions);
@@ -363,13 +339,10 @@ function renderCoordinating(mainName, seedStops) {
 
     const roleWrap = document.createElement("div");
     roleWrap.className = "coord-roles";
-    const baseLabel = state.kind === "neutral" ? `Base · ${mainName}` : `Base · ${extras.find((e) => e.label === "base").name}`;
-    const primLabel = state.kind === "foreground" ? `Primary · ${mainName}` : `Primary · ${extras.find((e) => e.label === "primary").name}`;
-    roleWrap.appendChild(coordRoleRow(baseLabel, roles.base, basePal));
-    roleWrap.appendChild(coordRoleRow(primLabel, roles.primary, primPal));
-    const accentExtras = extras.filter((e) => e.label.startsWith("accent"));
-    roles.accents.forEach((a, i) => {
-      roleWrap.appendChild(coordRoleRow(`Accent ${i + 1} · ${accentExtras[i].name}`, a, accentPals[i]));
+    roleWrap.appendChild(coordRoleRow(`Base · ${baseName}`, r.roles.base, basePal));
+    roleWrap.appendChild(coordRoleRow(`Primary · ${primName}`, r.roles.primary, primPal));
+    r.roles.accents.forEach((a, i) => {
+      roleWrap.appendChild(coordRoleRow(`Accent ${i + 1} · ${r.accentEntries[i].name}`, a, accentPals[i]));
     });
     card.appendChild(roleWrap);
 
@@ -550,7 +523,6 @@ function bindInputs() {
     if (!state.compare) return;
     const ref = TAILWIND[state.compare];
     const at500 = ref[STEPS.indexOf(500)];
-    // Kind guess: very low chroma => neutral
     const kind = at500.C < 0.05 ? "neutral" : "foreground";
     state.kind = kind;
     document.querySelectorAll(".seg button[data-kind]").forEach((b) => {
@@ -575,34 +547,36 @@ function bindInputs() {
   });
 
   document.querySelectorAll(".coord-seg").forEach((seg) => {
-    const which = seg.dataset.coordBg; // "light" | "dark"
+    const which = seg.dataset.coordBg;
     seg.querySelectorAll("button").forEach((btn) => {
       btn.addEventListener("click", () => {
         seg.querySelectorAll("button").forEach((b) => b.classList.remove("on"));
         btn.classList.add("on");
         const step = parseInt(btn.dataset.step, 10);
-        const idx = STEPS.indexOf(step);
-        if (which === "light") state.coordLightBg = idx;
-        else state.coordDarkBg = idx;
+        if (which === "light") state.coordLightBg = step;
+        else state.coordDarkBg = step;
         scheduleRender();
       });
     });
   });
 
-  // Tabs
   document.querySelectorAll(".tabs button").forEach((btn) => {
     btn.addEventListener("click", () => {
       document.querySelectorAll(".tabs button").forEach((b) => b.classList.remove("on"));
       btn.classList.add("on");
       const tab = btn.dataset.tab;
+      state.activeTab = tab;
       document.querySelectorAll(".tab-panel").forEach((p) => {
         p.hidden = p.dataset.panel !== tab;
       });
+      if (tab === "coordinating" && lastMainStops) {
+        renderCoordinating(lastMainName, lastMainStops);
+      }
     });
   });
 
-  bindCopyText($("copy-csharp"), () => mainCsharp, "Copy C#");
-  bindCopyText($("copy-tailwind"), () => mainTailwind, "Copy Tailwind");
+  bindCopyText($("copy-csharp"), () => buildCsharp(lastMainName, lastMainStops, []), "Copy C#");
+  bindCopyText($("copy-tailwind"), () => buildTailwind(lastMainName, lastMainStops, []), "Copy Tailwind");
 
   $("copy-link").addEventListener("click", async () => {
     syncUrl();
@@ -616,13 +590,10 @@ function bindInputs() {
   });
 }
 
-// `source` can be a string or a 0-arg function returning a string (for late
-// binding to module-level caches that refresh each render).
-function bindCopyText(btn, source, restoreLabel) {
+function bindCopyText(btn, getText, restoreLabel) {
   btn.addEventListener("click", async () => {
-    const text = typeof source === "function" ? source() : source;
     try {
-      await navigator.clipboard.writeText(text);
+      await navigator.clipboard.writeText(getText());
       btn.textContent = "Copied";
       setTimeout(() => (btn.textContent = restoreLabel), 1200);
     } catch {}
