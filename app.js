@@ -245,8 +245,8 @@ function deriveCoordinatingRoles(seed, kind, offsets) {
     return { base, primary, accents };
   }
   const base = { L: seed.L, C: seed.C, H: wrapHue(seed.H) };
-  const primary = { L: seed.L, C: COORD_PRIMARY_C, H: wrapHue(seed.H + 180) };
-  const accents = offsets.map((o) => ({ L: seed.L, C: COORD_PRIMARY_C, H: wrapHue(primary.H + o) }));
+  const primary = { L: seed.L, C: COORD_PRIMARY_C, H: base.H };
+  const accents = offsets.map((o) => ({ L: seed.L, C: COORD_PRIMARY_C, H: wrapHue(base.H + o) }));
   return { base, primary, accents };
 }
 
@@ -597,9 +597,26 @@ function buildTailwind(name, stops, extras) {
   return lines.join("\n");
 }
 
+function nearestTailwind500(seed) {
+  const hr = (seed.H * Math.PI) / 180;
+  const sa = seed.C * Math.cos(hr), sb = seed.C * Math.sin(hr);
+  let best = null, bestD = Infinity;
+  for (const [name, stops] of Object.entries(TAILWIND)) {
+    const r = stops[STEPS.indexOf(500)];
+    const rh = (r.H * Math.PI) / 180;
+    const ra = r.C * Math.cos(rh), rb = r.C * Math.sin(rh);
+    const dL = seed.L - r.L, da = sa - ra, db = sb - rb;
+    const d = dL * dL + da * da + db * db;
+    if (d < bestD) { bestD = d; best = name; }
+  }
+  return best;
+}
+
 function renderSeedReadout() {
   if (!state.seed) return;
   $("seed-oklch").textContent = formatOklch(state.seed);
+  const tw = nearestTailwind500(state.seed);
+  $("seed-nearest-tw").textContent = tw ? `closest: ${tw}-500` : "closest: —";
 }
 
 function swatchEl(stop, deltaStr) {
