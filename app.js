@@ -19,6 +19,9 @@ const state = {
   compare: "",
   coordLightBg: 50,
   coordDarkBg: 950,
+  syntaxIntensity: "muted",
+  syntaxLightBg: 50,
+  syntaxDarkBg: 950,
   activeTab: "swatches",
 };
 
@@ -52,6 +55,9 @@ function encodeStateToUrl() {
   if (state.compare) p.set("cmp", state.compare);
   if (state.coordLightBg !== 50) p.set("lbg", String(state.coordLightBg));
   if (state.coordDarkBg !== 950) p.set("dbg", String(state.coordDarkBg));
+  if (state.syntaxIntensity !== "muted") p.set("si", "v");
+  if (state.syntaxLightBg !== 50) p.set("slbg", String(state.syntaxLightBg));
+  if (state.syntaxDarkBg !== 950) p.set("sdbg", String(state.syntaxDarkBg));
   return p.toString();
 }
 
@@ -87,6 +93,14 @@ function applyStateFromUrl() {
 
   const dbg = parseInt(p.get("dbg"), 10);
   if (dbg === 900 || dbg === 950) state.coordDarkBg = dbg;
+
+  if (p.get("si") === "v") state.syntaxIntensity = "vivid";
+
+  const slbg = parseInt(p.get("slbg"), 10);
+  if (slbg === 50 || slbg === 100) state.syntaxLightBg = slbg;
+
+  const sdbg = parseInt(p.get("sdbg"), 10);
+  if (sdbg === 900 || sdbg === 950) state.syntaxDarkBg = sdbg;
 }
 
 function clamp(x, lo, hi) { return Math.max(lo, Math.min(hi, x)); }
@@ -114,11 +128,23 @@ function hydrateControlsFromState() {
   $("dark-chroma-val").textContent = state.darkChromaRetention.toFixed(2);
   $("anchor").value = String(state.anchor);
   $("compare").value = state.compare;
-  document.querySelectorAll(".coord-seg").forEach((seg) => {
+  document.querySelectorAll(".coord-seg[data-coord-bg]").forEach((seg) => {
     const which = seg.dataset.coordBg;
     const target = which === "light" ? state.coordLightBg : state.coordDarkBg;
     seg.querySelectorAll("button").forEach((b) => {
       b.classList.toggle("on", parseInt(b.dataset.step, 10) === target);
+    });
+  });
+  document.querySelectorAll(".coord-seg[data-syntax-bg]").forEach((seg) => {
+    const which = seg.dataset.syntaxBg;
+    const target = which === "light" ? state.syntaxLightBg : state.syntaxDarkBg;
+    seg.querySelectorAll("button").forEach((b) => {
+      b.classList.toggle("on", parseInt(b.dataset.step, 10) === target);
+    });
+  });
+  document.querySelectorAll(".coord-seg[data-syntax-intensity]").forEach((seg) => {
+    seg.querySelectorAll("button").forEach((b) => {
+      b.classList.toggle("on", b.dataset.intensity === state.syntaxIntensity);
     });
   });
 }
@@ -164,6 +190,7 @@ function render() {
   renderSeedReadout();
   renderSwatches(stops);
   if (state.activeTab === "coordinating") renderCoordinating(name, stops);
+  if (state.activeTab === "syntax") renderSyntax(name, stops);
   syncUrl();
 }
 
@@ -356,6 +383,195 @@ function renderCoordinating(mainName, seedStops) {
   }
 }
 
+// ---- Syntax highlighting ----
+
+// Tetradic-ish hue offsets around primary: keeps string/number/function/type
+// visually separated. 90° spacing is textbook tetradic; we nudge to 60/150/240/300
+// so accent1 (string) doesn't land on the same hue family as primary (keyword).
+const SYNTAX_OFFSETS = [60, 150, 240, 300];
+
+const SYNTAX_TOKENS = [
+  { key: "keyword",  label: "Keyword" },
+  { key: "string",   label: "String" },
+  { key: "number",   label: "Number" },
+  { key: "function", label: "Function" },
+  { key: "type",     label: "Type" },
+];
+
+function syntaxRoles() {
+  const roles = deriveCoordinatingRoles(state.seed, state.kind, SYNTAX_OFFSETS);
+  // Syntax needs four accents at readable chroma even when the seed is near-gray.
+  // Mirror COORD_PRIMARY_C as a floor so a low-chroma seed still yields distinguishable tokens.
+  const floorC = (r) => ({ L: r.L, C: Math.max(r.C, COORD_PRIMARY_C * 0.75), H: r.H });
+  return {
+    base: roles.base,
+    primary: floorC(roles.primary),
+    accents: roles.accents.map(floorC),
+  };
+}
+
+function syntaxPalettes(seedStops) {
+  const roles = syntaxRoles();
+  const opts = currentPaletteOpts();
+  const basePal = state.kind === "neutral"
+    ? seedStops
+    : generatePalette({ seed: roles.base, kind: "neutral", ...opts });
+  const primPal = state.kind === "foreground"
+    ? seedStops
+    : generatePalette({ seed: roles.primary, kind: "foreground", ...opts });
+  const accentPals = roles.accents.map((r) => (
+    generatePalette({ seed: r, kind: "foreground", ...opts })
+  ));
+  return { roles, basePal, primPal, accentPals };
+}
+
+function syntaxTokenColors(pals, variant) {
+  const isLight = variant === "light";
+  const bgStep = isLight ? state.syntaxLightBg : state.syntaxDarkBg;
+  const bgI = STEPS.indexOf(bgStep);
+  // Keep foreground at the max-contrast end regardless of bg choice.
+  const fgI = isLight ? 9 : 1;               // base-900 / base-100
+  const mutedI = 5;                          // base-500 for comments both ways
+  // Muted: dark 400, light 700.
+  // Vivid: dark 400 (already near-peak chroma on dark bg), light 500 (pulls to anchor).
+  const vivid = state.syntaxIntensity === "vivid";
+  const tokI = isLight ? (vivid ? 6 : 7) : (vivid ? 5 : 4);
+  return {
+    bg: formatOklch(pals.basePal[bgI]),
+    fg: formatOklch(pals.basePal[fgI]),
+    muted: formatOklch(pals.basePal[mutedI]),
+    keyword: formatOklch(pals.primPal[tokI]),
+    string: formatOklch(pals.accentPals[0][tokI]),
+    number: formatOklch(pals.accentPals[1][tokI]),
+    function: formatOklch(pals.accentPals[2][tokI]),
+    type: formatOklch(pals.accentPals[3][tokI]),
+  };
+}
+
+// Hand-tokenized JS sample. Keeping this static (no runtime highlight.js dep)
+// preserves the zero-build constraint from CLAUDE.md.
+const SYNTAX_SAMPLE = [
+  `<span class="c">// Fibonacci with memoization</span>`,
+  `<span class="k">import</span> { <span class="t">Map</span> } <span class="k">from</span> <span class="s">"./util"</span>;`,
+  ``,
+  `<span class="k">export function</span> <span class="f">fib</span>(<span class="v">n</span>: <span class="t">number</span>): <span class="t">number</span> {`,
+  `  <span class="k">const</span> cache = <span class="k">new</span> <span class="t">Map</span>&lt;<span class="t">number</span>, <span class="t">number</span>&gt;();`,
+  `  <span class="k">if</span> (<span class="v">n</span> &lt; <span class="n">2</span>) <span class="k">return</span> <span class="v">n</span>;`,
+  `  <span class="k">if</span> (cache.<span class="f">has</span>(<span class="v">n</span>)) <span class="k">return</span> cache.<span class="f">get</span>(<span class="v">n</span>)!;`,
+  `  <span class="k">const</span> v = <span class="f">fib</span>(<span class="v">n</span> - <span class="n">1</span>) + <span class="f">fib</span>(<span class="v">n</span> - <span class="n">2</span>);`,
+  `  cache.<span class="f">set</span>(<span class="v">n</span>, v);`,
+  `  <span class="k">return</span> v;`,
+  `}`,
+  ``,
+  `<span class="c">/* prints 55 */</span>`,
+  `<span class="f">console</span>.<span class="f">log</span>(<span class="f">fib</span>(<span class="n">10</span>));`,
+].join("\n");
+
+function syntaxCodeCard(pals, variant) {
+  const tok = syntaxTokenColors(pals, variant);
+  const el = document.createElement("div");
+  el.className = `syntax-code ${variant}`;
+  el.style.setProperty("--syn-bg", tok.bg);
+  el.style.setProperty("--syn-fg", tok.fg);
+  el.style.setProperty("--syn-muted", tok.muted);
+  el.style.setProperty("--syn-keyword", tok.keyword);
+  el.style.setProperty("--syn-string", tok.string);
+  el.style.setProperty("--syn-number", tok.number);
+  el.style.setProperty("--syn-function", tok.function);
+  el.style.setProperty("--syn-type", tok.type);
+  el.innerHTML = `
+    <div class="syntax-code-head">
+      <span class="syntax-variant">${variant === "light" ? "Light" : "Dark"}</span>
+      <div class="token-legend">
+        <span class="leg" style="color:${tok.muted}">comment</span>
+        <span class="leg" style="color:${tok.keyword}">keyword</span>
+        <span class="leg" style="color:${tok.string}">string</span>
+        <span class="leg" style="color:${tok.number}">number</span>
+        <span class="leg" style="color:${tok.function}">function</span>
+        <span class="leg" style="color:${tok.type}">type</span>
+      </div>
+    </div>
+    <pre class="syntax-pre"><code>${SYNTAX_SAMPLE}</code></pre>`;
+  return el;
+}
+
+const SYNTAX_ACCENT_WORDS = ["one", "two", "three", "four"];
+
+function syntaxExtras(pals) {
+  return pals.accentPals.map((stops, i) => ({
+    name: `Accent ${SYNTAX_ACCENT_WORDS[i]}`,
+    slug: `accent-${SYNTAX_ACCENT_WORDS[i]}`,
+    stops,
+    label: `accent ${i + 1}`,
+  }));
+}
+
+function buildSyntaxCsharp(pals) {
+  return syntaxExtras(pals)
+    .map((e) => csharpBlockFor(e.name, e.slug, e.stops, e.label))
+    .join("\n\n");
+}
+
+function buildSyntaxTailwind(pals) {
+  const lines = ["@theme {"];
+  syntaxExtras(pals).forEach((e, i) => {
+    if (i > 0) lines.push("");
+    lines.push(`  /* ${e.label}: ${e.name} */`);
+    lines.push(...tailwindLinesFor(e.slug, e.stops));
+  });
+  lines.push("}");
+  return lines.join("\n");
+}
+
+function renderSyntax(mainName, seedStops) {
+  const host = $("syntax");
+  host.innerHTML = "";
+  const pals = syntaxPalettes(seedStops);
+  const baseName = state.kind === "neutral" ? mainName : nearestName(rgbToOklab(hexToRgb(oklchToHex(pals.roles.base))));
+  const primName = state.kind === "foreground" ? mainName : nearestName(rgbToOklab(hexToRgb(oklchToHex(pals.roles.primary))));
+  const accentNames = pals.roles.accents.map((r) => nearestName(rgbToOklab(hexToRgb(oklchToHex(r)))));
+
+  const card = document.createElement("div");
+  card.className = "coord-card syntax-card";
+
+  const header = document.createElement("div");
+  header.className = "coord-card-head";
+  header.innerHTML = `<div class="coord-card-title">
+      <h3>Syntax scheme</h3>
+      <span class="coord-offsets">${SYNTAX_OFFSETS.map((o) => "+" + o + "°").join(", ")}</span>
+    </div>`;
+  const actions = document.createElement("div");
+  actions.className = "coord-card-actions";
+  const btnCs = document.createElement("button");
+  btnCs.type = "button"; btnCs.className = "btn-secondary"; btnCs.textContent = "Copy C#";
+  const btnTw = document.createElement("button");
+  btnTw.type = "button"; btnTw.className = "btn-secondary"; btnTw.textContent = "Copy Tailwind";
+  bindCopyText(btnCs, () => buildSyntaxCsharp(pals), "Copy C#");
+  bindCopyText(btnTw, () => buildSyntaxTailwind(pals), "Copy Tailwind");
+  actions.appendChild(btnCs);
+  actions.appendChild(btnTw);
+  header.appendChild(actions);
+  card.appendChild(header);
+
+  const roleWrap = document.createElement("div");
+  roleWrap.className = "coord-roles";
+  roleWrap.appendChild(coordRoleRow(`Base · ${baseName}`, pals.roles.base, pals.basePal));
+  roleWrap.appendChild(coordRoleRow(`Keyword (primary) · ${primName}`, pals.roles.primary, pals.primPal));
+  const tokenLabels = ["String", "Number", "Function", "Type"];
+  pals.roles.accents.forEach((a, i) => {
+    roleWrap.appendChild(coordRoleRow(`${tokenLabels[i]} · ${accentNames[i]}`, a, pals.accentPals[i]));
+  });
+  card.appendChild(roleWrap);
+
+  const demo = document.createElement("div");
+  demo.className = "coord-demo syntax-demo";
+  demo.appendChild(syntaxCodeCard(pals, "dark"));
+  demo.appendChild(syntaxCodeCard(pals, "light"));
+  card.appendChild(demo);
+
+  host.appendChild(card);
+}
+
 // Tailwind v4 uses decimal L (0..1), trailing zeros trimmed.
 function formatOklchTheme({ L, C, H }) {
   const fmt = (x, d) => {
@@ -438,16 +654,14 @@ function hueDist(a, b) {
 
 function csharpBlockFor(name, slugName, stops, label) {
   const tc = titleCase(name);
-  const header = label ? `// Colors - ${tc} (${label})` : `// Colors - ${tc}`;
-  const lines = [header];
+  const header = label ? `// ${tc} (${label})` : `// ${tc}`;
+  const lines = [header, `var ${slugName} = new Dictionary<string, string>`, "{"];
+  const keyWidth = Math.max(...stops.map((s) => String(s.step).length)) + 3; // "NN",
   for (const stop of stops) {
-    lines.push(`builder.Add("--color-${slugName}-${stop.step}", "${formatOklch(stop)}");`);
+    const key = `"${stop.step}",`.padEnd(keyWidth, " ");
+    lines.push(`    { ${key} "${formatOklch(stop)}" },`);
   }
-  lines.push("");
-  lines.push("/// <summary>");
-  lines.push(`/// Represents the color name "${slugName}".`);
-  lines.push("/// </summary>");
-  lines.push(`public const string ${tc} = "${slugName}";`);
+  lines.push("}.ToImmutableDictionary();");
   return lines.join("\n");
 }
 function buildCsharp(name, stops, extras) {
@@ -546,7 +760,7 @@ function bindInputs() {
     scheduleRender();
   });
 
-  document.querySelectorAll(".coord-seg").forEach((seg) => {
+  document.querySelectorAll(".coord-seg[data-coord-bg]").forEach((seg) => {
     const which = seg.dataset.coordBg;
     seg.querySelectorAll("button").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -555,6 +769,31 @@ function bindInputs() {
         const step = parseInt(btn.dataset.step, 10);
         if (which === "light") state.coordLightBg = step;
         else state.coordDarkBg = step;
+        scheduleRender();
+      });
+    });
+  });
+
+  document.querySelectorAll(".coord-seg[data-syntax-bg]").forEach((seg) => {
+    const which = seg.dataset.syntaxBg;
+    seg.querySelectorAll("button").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        seg.querySelectorAll("button").forEach((b) => b.classList.remove("on"));
+        btn.classList.add("on");
+        const step = parseInt(btn.dataset.step, 10);
+        if (which === "light") state.syntaxLightBg = step;
+        else state.syntaxDarkBg = step;
+        scheduleRender();
+      });
+    });
+  });
+
+  document.querySelectorAll(".coord-seg[data-syntax-intensity]").forEach((seg) => {
+    seg.querySelectorAll("button").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        seg.querySelectorAll("button").forEach((b) => b.classList.remove("on"));
+        btn.classList.add("on");
+        state.syntaxIntensity = btn.dataset.intensity;
         scheduleRender();
       });
     });
@@ -571,6 +810,9 @@ function bindInputs() {
       });
       if (tab === "coordinating" && lastMainStops) {
         renderCoordinating(lastMainName, lastMainStops);
+      }
+      if (tab === "syntax" && lastMainStops) {
+        renderSyntax(lastMainName, lastMainStops);
       }
     });
   });

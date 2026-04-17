@@ -91,6 +91,7 @@
     <div class="tabs">
       <button type="button" data-tab="swatches" class="on">Swatches</button>
       <button type="button" data-tab="coordinating">Coordinating</button>
+      <button type="button" data-tab="syntax">Syntax</button>
     </div>
 
     <div class="tab-panel" data-panel="swatches">
@@ -121,6 +122,34 @@
         </div>
       </div>
       <div id="coordinating" class="coord-grid"></div>
+    </div>
+
+    <div class="tab-panel" data-panel="syntax" hidden>
+      <p class="coord-intro">A syntax highlighting scheme derived from your seed: base + primary + four tetradic accents. Tokens share one palette step so no color visually jumps. Comments use a muted base step; keywords/strings/numbers/functions/types take the accents.</p>
+      <div class="coord-bg-controls">
+        <div class="coord-bg-field">
+          <label>Intensity</label>
+          <div class="seg coord-seg" data-syntax-intensity>
+            <button type="button" data-intensity="muted" class="on">Muted</button>
+            <button type="button" data-intensity="vivid">Vivid</button>
+          </div>
+        </div>
+        <div class="coord-bg-field">
+          <label>Light bg</label>
+          <div class="seg coord-seg" data-syntax-bg="light">
+            <button type="button" data-step="50" class="on">50</button>
+            <button type="button" data-step="100">100</button>
+          </div>
+        </div>
+        <div class="coord-bg-field">
+          <label>Dark bg</label>
+          <div class="seg coord-seg" data-syntax-bg="dark">
+            <button type="button" data-step="900">900</button>
+            <button type="button" data-step="950" class="on">950</button>
+          </div>
+        </div>
+      </div>
+      <div id="syntax" class="coord-grid"></div>
     </div>
   </section>
 </main>
