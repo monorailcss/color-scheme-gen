@@ -86,10 +86,81 @@ input[type="color"] {
   cursor: pointer;
 }
 
-.seed-row { display: flex; gap: 8px; align-items: center; }
-.seed-row input[type="text"] { flex: 1; font-family: ui-monospace, Consolas, monospace; }
+.seed-preview {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.seed-chip {
+  width: 56px;
+  height: 56px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+  background: #444;
+}
+.seed-meta { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.seed-meta .readout { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hex-readout { color: var(--text); }
+
 .readout { font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: var(--muted); }
 .name-readout { color: var(--text); font-size: 13px; }
+
+.hue-strip, .chroma-strip {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 18px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  outline: none;
+  cursor: pointer;
+}
+.hue-strip {
+  background: linear-gradient(
+    to right,
+    oklch(0.7 0.18 0),
+    oklch(0.7 0.18 60),
+    oklch(0.7 0.18 120),
+    oklch(0.7 0.18 180),
+    oklch(0.7 0.18 240),
+    oklch(0.7 0.18 300),
+    oklch(0.7 0.18 360)
+  );
+}
+.chroma-strip {
+  --seed-h: 30;
+  background: linear-gradient(
+    to right,
+    oklch(0.62 0 var(--seed-h)),
+    oklch(0.62 0.3 var(--seed-h))
+  );
+}
+.hue-strip::-webkit-slider-thumb,
+.chroma-strip::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 22px;
+  border-radius: 4px;
+  background: #fff;
+  border: 2px solid #111;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+}
+.hue-strip::-moz-range-thumb,
+.chroma-strip::-moz-range-thumb {
+  width: 14px;
+  height: 22px;
+  border-radius: 4px;
+  background: #fff;
+  border: 2px solid #111;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+}
 
 .seg {
   display: inline-flex;

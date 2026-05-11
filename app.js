@@ -7,8 +7,11 @@ import { COLOR_NAMES } from "./color-names.js";
 
 const $ = (id) => document.getElementById(id);
 
+const SEED_DISPLAY_L = 0.62;
+
 const state = {
-  seedHex: "#7e3e3e",
+  seedH: 30,
+  seedC: 0.1,
   seed: null,
   kind: "foreground",
   chromaScale: 1.0,
@@ -26,7 +29,8 @@ const state = {
 };
 
 function currentName() {
-  const rgb = hexToRgb(state.seedHex);
+  const hex = oklchToHex(state.seed);
+  const rgb = hexToRgb(hex);
   return rgb ? nearestName(rgbToOklab(rgb)) : "brand";
 }
 
@@ -44,7 +48,8 @@ function nearestName(lab) {
 
 function encodeStateToUrl() {
   const p = new URLSearchParams();
-  p.set("s", state.seedHex.replace(/^#/, ""));
+  p.set("h", state.seedH.toFixed(1));
+  p.set("c", state.seedC.toFixed(3));
   if (state.kind !== "foreground") p.set("k", "n");
   if (state.chromaScale !== 1.0) p.set("cs", String(state.chromaScale));
   if (state.hueShift !== 0) p.set("hs", String(state.hueShift));
@@ -65,8 +70,22 @@ function applyStateFromUrl() {
   const p = new URLSearchParams(window.location.search);
   if (!p.toString()) return;
 
-  const s = p.get("s");
-  if (s && /^[0-9a-fA-F]{6}$/.test(s)) state.seedHex = "#" + s.toLowerCase();
+  const h = parseFloat(p.get("h"));
+  const c = parseFloat(p.get("c"));
+  if (!Number.isNaN(h)) state.seedH = wrapHue(h);
+  if (!Number.isNaN(c)) state.seedC = clamp(c, 0, 0.3);
+
+  if (Number.isNaN(h) && Number.isNaN(c)) {
+    const s = p.get("s");
+    if (s && /^[0-9a-fA-F]{6}$/.test(s)) {
+      const rgb = hexToRgb("#" + s.toLowerCase());
+      if (rgb) {
+        const o = rgbToOklch(rgb);
+        state.seedH = wrapHue(o.H);
+        state.seedC = clamp(o.C, 0, 0.3);
+      }
+    }
+  }
 
   const k = p.get("k");
   if (k === "n") state.kind = "neutral";
@@ -113,8 +132,10 @@ function syncUrl() {
 }
 
 function hydrateControlsFromState() {
-  $("seed-color").value = state.seedHex;
-  $("seed-hex").value = state.seedHex;
+  $("seed-hue").value = String(state.seedH);
+  $("seed-hue-val").textContent = `${Math.round(state.seedH)}°`;
+  $("seed-chroma").value = String(state.seedC);
+  $("seed-chroma-val").textContent = state.seedC.toFixed(3);
   document.querySelectorAll(".seg button[data-kind]").forEach((b) => {
     b.classList.toggle("on", b.dataset.kind === state.kind);
   });
@@ -149,10 +170,8 @@ function hydrateControlsFromState() {
   });
 }
 
-function recomputeSeedFromHex() {
-  const rgb = hexToRgb(state.seedHex);
-  if (!rgb) return;
-  state.seed = rgbToOklch(rgb);
+function recomputeSeed() {
+  state.seed = { L: SEED_DISPLAY_L, C: state.seedC, H: wrapHue(state.seedH) };
 }
 
 function titleCase(s) {
@@ -614,7 +633,11 @@ function nearestTailwind500(seed) {
 
 function renderSeedReadout() {
   if (!state.seed) return;
-  $("seed-oklch").textContent = formatOklch(state.seed);
+  const css = formatOklch(state.seed);
+  $("seed-oklch").textContent = css;
+  $("seed-hex-readout").textContent = oklchToHex(state.seed);
+  $("seed-chip").style.background = css;
+  $("seed-chroma").style.setProperty("--seed-h", String(state.seed.H));
   const tw = nearestTailwind500(state.seed);
   $("seed-nearest-tw").textContent = tw ? `closest: ${tw}-500` : "closest: —";
 }
@@ -696,18 +719,15 @@ function scheduleRender() {
 }
 
 function bindInputs() {
-  $("seed-color").addEventListener("input", (e) => {
-    state.seedHex = e.target.value;
-    $("seed-hex").value = state.seedHex;
-    recomputeSeedFromHex(); scheduleRender();
+  $("seed-hue").addEventListener("input", (e) => {
+    state.seedH = parseFloat(e.target.value);
+    $("seed-hue-val").textContent = `${Math.round(state.seedH)}°`;
+    recomputeSeed(); scheduleRender();
   });
-  $("seed-hex").addEventListener("input", (e) => {
-    const v = e.target.value.trim();
-    if (hexToRgb(v)) {
-      state.seedHex = v.startsWith("#") ? v : "#" + v;
-      $("seed-color").value = state.seedHex.length === 7 ? state.seedHex : "#000000";
-      recomputeSeedFromHex(); scheduleRender();
-    }
+  $("seed-chroma").addEventListener("input", (e) => {
+    state.seedC = parseFloat(e.target.value);
+    $("seed-chroma-val").textContent = state.seedC.toFixed(3);
+    recomputeSeed(); scheduleRender();
   });
 
   document.querySelectorAll(".seg button[data-kind]").forEach((btn) => {
@@ -761,11 +781,13 @@ function bindInputs() {
     });
     $("dark-chroma-field").hidden = kind !== "neutral";
 
-    state.seed = { L: at500.L, C: at500.C, H: at500.H };
-    const hex = oklchToHex(state.seed);
-    state.seedHex = hex;
-    $("seed-color").value = hex;
-    $("seed-hex").value = hex;
+    state.seedH = wrapHue(at500.H);
+    state.seedC = clamp(at500.C, 0, 0.3);
+    recomputeSeed();
+    $("seed-hue").value = String(state.seedH);
+    $("seed-hue-val").textContent = `${Math.round(state.seedH)}°`;
+    $("seed-chroma").value = String(state.seedC);
+    $("seed-chroma-val").textContent = state.seedC.toFixed(3);
     state.anchor = 500;
     $("anchor").value = "500";
     state.chromaScale = 1.0;
@@ -862,7 +884,7 @@ function bindCopyText(btn, getText, restoreLabel) {
 // ---- Init ----
 
 applyStateFromUrl();
-recomputeSeedFromHex();
+recomputeSeed();
 bindInputs();
 hydrateControlsFromState();
 render();

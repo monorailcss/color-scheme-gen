@@ -30,12 +30,24 @@
 
     <div class="field">
       <label>Seed color</label>
-      <div class="seed-row">
-        <input id="seed-color" type="color" value="#7e3e3e" />
-        <input id="seed-hex" type="text" value="#7e3e3e" spellcheck="false" />
+      <div class="seed-preview">
+        <div id="seed-chip" class="seed-chip"></div>
+        <div class="seed-meta">
+          <div id="seed-oklch" class="readout">oklch(…)</div>
+          <div id="seed-hex-readout" class="readout hex-readout">#…</div>
+          <div id="seed-nearest-tw" class="readout">closest: —</div>
+        </div>
       </div>
-      <div id="seed-oklch" class="readout">oklch(…)</div>
-      <div id="seed-nearest-tw" class="readout">closest: —</div>
+    </div>
+
+    <div class="field">
+      <label for="seed-hue">Hue <span id="seed-hue-val" class="val">0°</span></label>
+      <input id="seed-hue" type="range" min="0" max="360" step="1" value="30" class="hue-strip" />
+    </div>
+
+    <div class="field">
+      <label for="seed-chroma">Chroma <span id="seed-chroma-val" class="val">0.10</span></label>
+      <input id="seed-chroma" type="range" min="0" max="0.3" step="0.005" value="0.1" class="chroma-strip" />
     </div>
 
     <div class="field">
